@@ -263,24 +263,23 @@ class ClickHouseDDLCompiler(compiler.DDLCompiler):
         if not engine_params:
             return text
 
-        text += '('
-
+        text += ' '
         compiled_params = []
-        for param in engine_params:
-            if isinstance(param, tuple):
+        for param_key, param_value in engine_params.items():
+            if isinstance(param_value, tuple):
                 compiled = (
                     '(' +
-                    ', '.join(compile_param(p) for p in param) +
+                    ', '.join(compile_param(p) for p in param_value) +
                     ')'
                 )
             else:
-                compiled = compile_param(param)
+                compiled = compile_param(param_value)
 
-            compiled_params.append(compiled)
+            compiled_params.append(param_key.replace('_', ' ').upper() + ' ' + compiled)
 
-        text += ', '.join(compiled_params)
+        text += ' '.join(compiled_params)
 
-        return text + ')'
+        return text
 
     def post_create_table(self, table):
         engine = getattr(table, 'engine', None)

@@ -23,7 +23,7 @@ class EnginesDeclarativeTestCase(BaseTestCase):
         self.assertEqual(
             self.compile(CreateTable(TestTable.__table__)),
             'CREATE TABLE test_table (date Date, x Int32, y String) '
-            'ENGINE = MergeTree(date, (date, x), 8192)'
+            'ENGINE = MergeTree PARTITION BY date ORDER BY (date, x) SETTING index_granularity = 8192)'
         )
 
     def test_text_engine_columns(self):

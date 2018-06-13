@@ -76,15 +76,13 @@ class MergeTree(Engine):
             self.sampling._set_parent(table)
 
     def get_params(self):
-        params = [
-            self.date_col.get_column()
-        ]
+        params = {'partition_by': self.date_col.get_column()}
 
         if self.sampling:
-            params.append(self.sampling.get_expressions_or_columns()[0])
+            params['sample_by'] = self.sampling.get_expressions_or_columns()[0]
 
-        params.append(tuple(self.key_cols.get_expressions_or_columns()))
-        params.append(self.index_granularity)
+        params['order_by'] = tuple(self.key_cols.get_expressions_or_columns())
+        params['settings'] = 'index_granularity=%s' % self.index_granularity
         return params
 
 
