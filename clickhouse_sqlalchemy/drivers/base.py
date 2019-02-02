@@ -7,7 +7,7 @@ from sqlalchemy.sql import (
 from sqlalchemy.sql.elements import Label
 from sqlalchemy.types import DATE, DATETIME, FLOAT
 from sqlalchemy.util import (
-    inspect_getargspec,
+    inspect_getfullargspec,
     warn,
     to_list,
 )
@@ -279,7 +279,9 @@ class ClickHouseDDLCompiler(compiler.DDLCompiler):
     def _compile_param(self, expr):
         compiler = self.sql_compiler
         if isinstance(expr, (list, tuple)):
-            return '(' + ', '.join(self._compile_param(el) for el in expr) + ')'
+            return '(' + ', '.join(
+                self._compile_param(el) for el in expr
+            ) + ')'
         if not isinstance(expr, expression.ColumnClause):
             if not hasattr(expr, 'self_group'):
                 # assuming base type (int, string, etc.)
@@ -289,7 +291,6 @@ class ClickHouseDDLCompiler(compiler.DDLCompiler):
         return compiler.process(
             expr, include_table=False, literal_binds=True
         )
-
 
     def visit_merge_tree(self, engine):
 
@@ -317,7 +318,9 @@ class ClickHouseDDLCompiler(compiler.DDLCompiler):
             )
         if engine.sample:
             text += ' SAMPLE BY {0}\n'.format(
-                self._compile_param(engine.sample.get_expressions_or_columns()[0])
+                self._compile_param(
+                    engine.sample.get_expressions_or_columns()[0]
+                )
             )
         if engine.settings:
             text += ' SETTINGS ' + ', '.join(
@@ -330,8 +333,6 @@ class ClickHouseDDLCompiler(compiler.DDLCompiler):
         return text
 
     def visit_engine(self, engine):
-        compiler = self.sql_compiler
-
         engine_params = engine.get_parameters()
         text = engine.name
         if not engine_params:
@@ -651,4 +652,5 @@ class ClickHouseDialect(default.DefaultDialect):
         return True
 
     def _get_server_version_info(self, connection):
-        return tuple(int(x) for x in connection.scalar('select version()').split('.'))
+        version = connection.scalar('select version()')
+        return tuple(int(x) for x in version.split('.'))
