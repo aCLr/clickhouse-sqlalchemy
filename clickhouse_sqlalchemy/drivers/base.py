@@ -143,35 +143,24 @@ class ClickHouseCompiler(compiler.SQLCompiler):
 
     def visit_join(self, join, asfrom=False, **kwargs):
         join_type = " "
+        if join.distribution:
+            join_type += join.distribution.upper() + " "
 
-        if join.global_:
-            join_type += "GLOBAL "
+        if join.strictness:
+            join_type += join.strictness.upper() + " "
 
-        if join.any:
-            join_type += "ANY "
+        join_type += join.type.upper() + " JOIN "
 
-        if join.all:
-            join_type += "ALL "
-
-        if join.full:
-            join_type += "FULL OUTER JOIN "
-        elif join.isouter:
-            join_type += "LEFT OUTER JOIN "
-        else:
-            join_type += "INNER JOIN "
-
-        if not isinstance(join.onclause, elements.Tuple):
-            raise exc.CompileError(
-                "Only tuple elements are supported. "
-                "Got: %s" % type(join.onclause)
-            )
-
-        return (
+        join_stmt = (
             join.left._compiler_dispatch(self, asfrom=True, **kwargs) +
             join_type +
-            join.right._compiler_dispatch(self, asfrom=True, **kwargs) +
-            " USING " + join.onclause._compiler_dispatch(self, **kwargs)
+            join.right._compiler_dispatch(self, asfrom=True, **kwargs)
         )
+        if isinstance(join.onclause, elements.Tuple):
+            join_stmt += ' USING ' + join.onclause._compiler_dispatch(self, **kwargs)
+        else:
+            join_stmt += ' ON ' + join.onclause._compiler_dispatch(self, **kwargs)
+        return join_stmt
 
     def _compose_select_body(
             self, text, select, inner_columns, froms, byfrom, kwargs):
