@@ -11,6 +11,12 @@ from sqlalchemy.util import to_list
 class Engine(SchemaEventTarget, Visitable):
     __visit_name__ = 'engine'
 
+    def __eq__(self, other):
+        return self.name() == other.name()
+
+    def get_params(self):
+       raise NotImplementedError()
+    
     def get_parameters(self):
         return []
 
@@ -20,7 +26,7 @@ class Engine(SchemaEventTarget, Visitable):
 
     def _set_parent(self, table):
         self.table = table
-        self.table.engine = self
+        self.table.dialect_options['clickhouse']['engine'] = self
 
 
 class TableCol(ColumnCollectionMixin, SchemaItem):

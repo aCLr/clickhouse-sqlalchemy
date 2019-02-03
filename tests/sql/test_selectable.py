@@ -1,4 +1,4 @@
-from sqlalchemy import Column
+from sqlalchemy import Column, Table as StandardTable, Integer
 
 from clickhouse_sqlalchemy import types, select, Table
 from tests.testcase import BaseTestCase
@@ -43,6 +43,14 @@ class SelectTestCase(BaseTestCase):
         self.assertEqual(
             self.compile(query, literal_binds=True),
             'SELECT x FROM t1 SAMPLE 0.1 GROUP BY x'
+        )
+
+    def test_select_from_table(self):
+        table = self.create_table()
+        query = table.select().sample(0.1)
+        self.assertEqual(
+            self.compile(query),
+            'SELECT x FROM t1 SAMPLE %(param_1)s'
         )
 
     def test_join(self):

@@ -1,4 +1,5 @@
 import enum
+import re
 from sqlalchemy import schema, types as sqltypes, exc, util as sa_util
 from sqlalchemy.engine import default, reflection
 from sqlalchemy.sql import (
@@ -12,10 +13,21 @@ from sqlalchemy.util import (
     to_list,
 )
 
+from clickhouse_sqlalchemy import Table
+from clickhouse_sqlalchemy.engine.reflection import CHInspector
 from .. import types
+from .. import engines
 from ..util import compat
 
-
+_engine_re = re.compile(
+    '(?P<engine_name>\w+)'
+    '(\s+(?P<engine_parameters>\(.+\))?)?'
+    '(\s+PARTITION BY(?P<partition_by>\(.+\))?)?'
+    '(\s+ORDER BY(?P<order_by>\(.+\))?)?'
+    '(\s+PRIMARY KEY(?P<pkey>\(.+\))?)?'
+    '(\s+SAMPLE(?P<sample>\(.+\))?)?'
+    '(\s+SETTINGS(?P<settings>\(.+\))?)?'
+)
 # Column specifications
 colspecs = {}
 
@@ -354,7 +366,7 @@ class ClickHouseDDLCompiler(compiler.DDLCompiler):
         return ''
 
     def post_create_table(self, table):
-        engine = getattr(table, 'engine', None)
+        engine = table.dialect_options['clickhouse']['engine']
 
         if not engine:
             raise exc.CompileError("No engine for table '%s'" % table.name)
@@ -456,6 +468,7 @@ class ClickHouseExecutionContextBase(default.DefaultExecutionContext):
 
 
 class ClickHouseDialect(default.DefaultDialect):
+    inspector = CHInspector
     name = 'clickhouse'
     supports_cast = True
     supports_unicode_statements = True
@@ -486,7 +499,8 @@ class ClickHouseDialect(default.DefaultDialect):
     construct_arguments = [
         (schema.Table, {
             'data': [],
-            'cluster': None
+            'cluster': None,
+            'engine': None,
         })
     ]
 
@@ -504,12 +518,42 @@ class ClickHouseDialect(default.DefaultDialect):
                 return True
         return False
 
+    def reflecttable(self, connection, table, include_columns, exclude_columns, **opts):
+        table.metadata.remove(table)
+        ch_table = Table._make_from_standard(table)
+        super().reflecttable(connection, ch_table, include_columns, exclude_columns, **opts)
+
     @reflection.cache
     def get_columns(self, connection, table_name, schema=None, **kw):
         query = 'DESCRIBE TABLE {}'.format(table_name)
         rows = self._execute(connection, query)
 
         return [self._get_column_info(row.name, row.type) for row in rows]
+
+    def get_engine(self, connection, table_name, schema=None):
+        query = "SELECT engine_full from system.tables where name='{}'".format(table_name)
+        if schema is not None:
+            query += " AND database='{}'".format(schema)
+        rows = list(self._execute(connection, query))
+        # if len(rows) == 0:
+        #     return None
+        # elif len(rows) > 1:
+        #     raise ValueError('got multiple tables with name {}'.format(table_name))
+        engine_full = rows[0].engine_full
+        found_engine = _engine_re.search(engine_full)
+        groups = found_engine.groupdict()
+        engine = getattr(engines, groups.pop('engine_name'))
+        params = groups.pop('engine_parameters') or tuple()
+        groups = {key: value for key, value in groups.items() if value is not None}
+        if not params and not groups:
+            return engine()
+        elif not groups:
+            return engine(*params)
+        elif not params:
+            return engine(**groups)
+        else:
+            raise Exception('0_o')
+
 
     def _get_column_info(self, name, format_type):
         return {
