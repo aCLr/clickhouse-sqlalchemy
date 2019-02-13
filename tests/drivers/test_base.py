@@ -1,4 +1,7 @@
-from sqlalchemy import Column
+from sqlalchemy import (
+    Column,
+    func,
+)
 
 from clickhouse_sqlalchemy import (
     Table,
@@ -27,6 +30,6 @@ class ClickHouseDialectTestCase(BaseTestCase):
         # engine = native_session.bind.dialect.get_engine(native_session.bind, table.name)
         # self.assertEqual(engine, table.dialect_options['clickhouse']['engine'])
 
-        table = self.create_table(engines.MergeTree('date', ('x')))
+        table = self.create_table(engines.SummingMergeTree('x', partition_by='date', order_by=('x',), sample='x', index_granularity=10))
         engine = native_session.bind.dialect.get_engine(native_session.bind, table.name)
         self.assertEqual(engine, table.dialect_options['clickhouse']['engine'])

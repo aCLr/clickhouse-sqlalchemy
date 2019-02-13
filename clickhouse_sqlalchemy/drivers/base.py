@@ -20,13 +20,16 @@ from .. import engines
 from ..util import compat
 
 _engine_re = re.compile(
-    '(?P<engine_name>\w+)'
-    '(\s+(?P<engine_parameters>\(.+\))?)?'
-    '(\s+PARTITION BY(?P<partition_by>\(.+\))?)?'
-    '(\s+ORDER BY(?P<order_by>\(.+\))?)?'
-    '(\s+PRIMARY KEY(?P<pkey>\(.+\))?)?'
-    '(\s+SAMPLE(?P<sample>\(.+\))?)?'
-    '(\s+SETTINGS(?P<settings>\(.+\))?)?'
+    """
+    (?P<engine_name>\w+)
+    \((?P<engine_parameters>[\w\s\d,()\-\\'\"]*?)?\)
+    (\s+PARTITION\ BY\ (?P<partition_by>[\w\d,()\-\\'\"]+))?
+    (\s+ORDER\ BY\ \((?P<order_by>[\w\d\s,()\-\\'\"]+?)\))?
+    (\s+PRIMARY\ KEY\ \((?P<pkey>[\w\d\s,()\-\\'\"]+?)\))?
+    (\s+SAMPLE (?P<sample>[\w\d\s,()\-\\'\"]+?))?
+    (\s+SETTINGS\ (?P<settings>(?P<key>\w+)=(?P<value>[\w\d]+)))?
+    """,
+    re.VERBOSE
 )
 # Column specifications
 colspecs = {}
@@ -541,18 +544,10 @@ class ClickHouseDialect(default.DefaultDialect):
         #     raise ValueError('got multiple tables with name {}'.format(table_name))
         engine_full = rows[0].engine_full
         found_engine = _engine_re.search(engine_full)
-        groups = found_engine.groupdict()
-        engine = getattr(engines, groups.pop('engine_name'))
-        params = groups.pop('engine_parameters') or tuple()
-        groups = {key: value for key, value in groups.items() if value is not None}
-        if not params and not groups:
-            return engine()
-        elif not groups:
-            return engine(*params)
-        elif not params:
-            return engine(**groups)
-        else:
-            raise Exception('0_o')
+        engine_params = found_engine.groupdict()
+        engine = getattr(engines, engine_params.pop('engine_name'))
+        return engine(*params, **engine_kwargs)
+
 
 
     def _get_column_info(self, name, format_type):
