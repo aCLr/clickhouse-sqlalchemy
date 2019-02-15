@@ -1,3 +1,4 @@
+import ast
 import enum
 import re
 from sqlalchemy import schema, types as sqltypes, exc, util as sa_util
@@ -19,15 +20,13 @@ from .. import types
 from .. import engines
 from ..util import compat
 
+_engine_parameters_re = re.compile(
+    '\(?((?P<gr>[\w\d]+),?)+\)?'
+)
 _engine_re = re.compile(
     """
     (?P<engine_name>\w+)
     \((?P<engine_parameters>[\w\s\d,()\-\\'\"]*?)?\)
-    (\s+PARTITION\ BY\ (?P<partition_by>[\w\d,()\-\\'\"]+))?
-    (\s+ORDER\ BY\ \((?P<order_by>[\w\d\s,()\-\\'\"]+?)\))?
-    (\s+PRIMARY\ KEY\ \((?P<pkey>[\w\d\s,()\-\\'\"]+?)\))?
-    (\s+SAMPLE (?P<sample>[\w\d\s,()\-\\'\"]+?))?
-    (\s+SETTINGS\ (?P<settings>(?P<key>\w+)=(?P<value>[\w\d]+)))?
     """,
     re.VERBOSE
 )
@@ -305,7 +304,7 @@ class ClickHouseDDLCompiler(compiler.DDLCompiler):
         if engine.partition_by:
             text += ' PARTITION BY {0}\n'.format(
                 self._compile_param(
-                    engine.partition_by.get_column()
+                    engine.partition_by.get_expressions_or_columns()[0]
                 )
             )
         if engine.order_by:
@@ -545,10 +544,53 @@ class ClickHouseDialect(default.DefaultDialect):
         engine_full = rows[0].engine_full
         found_engine = _engine_re.search(engine_full)
         engine_params = found_engine.groupdict()
-        engine = getattr(engines, engine_params.pop('engine_name'))
-        return engine(*params, **engine_kwargs)
-
-
+        engine = getattr(engines, engine_params['engine_name'])
+        engine_params = engine_params['engine_parameters']
+        translate_kwargs = {
+            'PARTITION BY': 'partition_by',
+            'ORDER BY': 'order_by',
+            'PRIMARY KEY': 'primary_key',
+            'SAMPLE BY': 'sample',
+            'SETTINGS': 'settings',
+        }
+        positions = dict.fromkeys(translate_kwargs.keys())
+        for setting in positions:
+            try:
+                positions[setting] = engine_full.index(setting)
+            except ValueError:
+                positions[setting] = -1
+        positions = sorted(
+            [
+                (key, value)
+                for key, value
+                in positions.items()
+                if value > -1
+            ],
+            key=lambda x: x[1]
+        )
+        settings = {}
+        for x, (setting, position) in enumerate(positions):
+            from_ = position + len(setting)
+            next_setting = x + 1
+            if next_setting >= len(positions):
+                break
+            else:
+                to = positions[next_setting][1]
+            scanner = _engine_parameters_re.scanner(engine_full[from_: to].strip())
+            parameters = []
+            while True:
+                group = scanner.search()
+                if group is None:
+                    break
+                parameters.append(group.groups()[-1])
+            settings[translate_kwargs[setting]] = parameters
+        name, position = positions[-1]
+        if name == 'SETTINGS':
+            position += len('SETTINGS')
+            for setting in engine_full[position:].split(','):
+                name, value = setting.split('=')
+                settings[name.strip()] = ast.literal_eval(value.strip())
+        return engine(*engine_params, **settings)
 
     def _get_column_info(self, name, format_type):
         return {

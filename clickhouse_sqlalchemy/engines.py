@@ -12,10 +12,10 @@ class Engine(SchemaEventTarget, Visitable):
     __visit_name__ = 'engine'
 
     def __eq__(self, other):
-        return self.name() == other.name()
+        return self.name == other.name
 
     def get_params(self):
-       raise NotImplementedError()
+        raise NotImplementedError()
     
     def get_parameters(self):
         return []
@@ -29,14 +29,6 @@ class Engine(SchemaEventTarget, Visitable):
         self.table.dialect_options['clickhouse']['engine'] = self
 
 
-class TableCol(ColumnCollectionMixin, SchemaItem):
-    def __init__(self, column, **kwargs):
-        super(TableCol, self).__init__(*[column], **kwargs)
-
-    def get_column(self):
-        return list(self.columns)[0]
-
-
 class KeysExpressionOrColumn(ColumnCollectionMixin, SchemaItem):
     def __init__(self, *expressions, **kwargs):
         columns = []
@@ -48,6 +40,15 @@ class KeysExpressionOrColumn(ColumnCollectionMixin, SchemaItem):
             self.expressions.append(expr)
 
         super(KeysExpressionOrColumn, self).__init__(*columns, **kwargs)
+
+    def __eq__(self, other):
+        def get_names(expressions):
+            for expr in expressions:
+                if isinstance(expr, util.string_types):
+                    yield expr
+                else:
+                    yield expr.key
+        return list(get_names(self.expressions)) == list(get_names(other.expressions))
 
     def _set_parent(self, table):
         super(KeysExpressionOrColumn, self)._set_parent(table)
@@ -74,7 +75,7 @@ class MergeTree(Engine):
     ):
         self.partition_by = None
         if partition_by is not None:
-            self.partition_by = TableCol(partition_by)
+            self.partition_by = KeysExpressionOrColumn(*to_list(partition_by))
 
         self.order_by = None
         if order_by is not None:
@@ -86,9 +87,19 @@ class MergeTree(Engine):
 
         self.sample = None
         if sample is not None:
-            self.sample = KeysExpressionOrColumn(sample)
+            self.sample = KeysExpressionOrColumn(*to_list(sample))
         self.settings = settings
         super(MergeTree, self).__init__()
+
+    def __eq__(self, other):
+        return (
+                super(MergeTree, self).__eq__(other)
+                and self.partition_by == other.partition_by
+                and self.order_by == other.order_by
+                and self.primary_key == other.primary_key
+                and self.sample == other.sample
+                and self.settings == other.settings
+        )
 
     def _set_parent(self, table):
         super(MergeTree, self)._set_parent(table)
@@ -121,16 +132,20 @@ class GraphiteMergeTree(MergeTree):
     def get_parameters(self):
         return literal(self.config_name)
 
+    def __eq__(self, other):
+        return self.config_name == other.config_name \
+                and super(GraphiteMergeTree, self).__eq__(other)
+
 
 class CollapsingMergeTree(MergeTree):
     def __init__(self, sign_col, *args, **kwargs):
         super(CollapsingMergeTree, self).__init__(
             *args, **kwargs
         )
-        self.sign_col = TableCol(sign_col)
+        self.sign_col = KeysExpressionOrColumn(sign_col)
 
     def get_parameters(self):
-        return self.sign_col.get_column()
+        return self.sign_col.columns.values()[0]
 
     def _set_parent(self, table):
         super(CollapsingMergeTree, self)._set_parent(table)
